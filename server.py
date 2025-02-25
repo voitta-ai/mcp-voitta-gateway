@@ -9,10 +9,12 @@ from mcp.server.sse import SseServerTransport
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-# Define a logging function that uses print in HTTP mode and stderr in stdio mode
-
 
 def log(message):
+    with open("/tmp/mcp.log", "a") as log_file:
+        log_file.write(f"{message}\n")
+        log_file.flush()
+
     if os.environ.get("FASTMCP_HTTP") == "1":
         print(message)
     else:
@@ -91,7 +93,7 @@ async def initialize_endpoints():
 
         except Exception as e:
             log(f"Error initializing endpoint {endpoint_name}: {e}")
-    log(f"Initialized {len(endpoint_schemas)} endpoints")
+    log(f"Initialized endpoints:  {set(endpoint_schemas.keys())}")
 
 
 def register_endpoint_tools(endpoint_name: str, url: str, schema: Dict[str, Any]):
@@ -259,5 +261,11 @@ def main():
         asyncio.run(mcp.run())
 
 
+log(f"Imported as {__name__}")
 if __name__ == "__main__":
     main()
+else:
+    log("Running with inspector")
+    # Use asyncio.run() to properly await the coroutines
+    asyncio.run(initialize_endpoints())
+    asyncio.run(mcp.run())
