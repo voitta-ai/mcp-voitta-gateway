@@ -53,4 +53,8 @@ For STDIO, go to the inspector console at http://localhost:5173 and use:
 
 ### Install for Claude
 
+```
+fastmcp install server.py --name "mcprfkgw"
+```
+
 ### Install for Cline
