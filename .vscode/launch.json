@@ -2,30 +2,30 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "MCP-RFK-GW (CLI)",
+            "name": "Voitta-Gateway (CLI)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/server.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
-                "CONFIG_PATH": "/Users/gregory/g/projects/llm/roma/rfk_jr/rfkjr.yaml"
+                "CONFIG_PATH": "/Users/gregory/g/projects/llm/roma/voitta-example/config/voitta.yaml"
             }
         },
         {
-            "name": "MCP-RFK-GW (HTTP)",
+            "name": "Voitta-Gateway (HTTP)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/server.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
-                "CONFIG_PATH": "/Users/gregory/g/projects/llm/roma/rfk_jr/rfkjr.yaml",
+                "CONFIG_PATH": "/Users/gregory/g/projects/llm/roma/voitta-example/config/voitta.yaml",
                 "FASTMCP_HTTP": "1"
             }
         },
         {
-            "name": "MCP-RFK-GW (HTTP) with Inspector",
+            "name": "Voitta-Gateway (HTTP) with Inspector",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/.venv/bin/fastmcp",
@@ -35,7 +35,7 @@
             ],
             "justMyCode": false,
             "env": {
-                "CONFIG_PATH": "/Users/gregory/g/projects/llm/roma/rfk_jr/rfkjr.yaml",
+                "CONFIG_PATH": "/Users/gregory/g/projects/llm/roma/voitta-example/config/voitta.yaml",
                 "FASTMCP_HTTP": "1"
             }
         }
