@@ -1,14 +1,12 @@
-filesystem:
-  response_format: rfk
-  url: http://127.0.0.1:50000
-  roots:
-    - /tmp
-    - /var/tmp
+knowledge_base:
+  response_format: plain
+  url: http://192.168.88.210:8007
+
 
 # canvas:
 #   url: canvas
 
 # MCP configuration
-mcp_config:
-  type: cline
-  path: /Users/gregory/Library/Application Support/Cursor/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json
+#mcp_config:
+#  type: cline
+#  path: /Users/gregory/Library/Application Support/Cursor/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json

@@ -1,219 +1,249 @@
-import os
-import sys
-import yaml
+#!/usr/bin/env python3
+"""
+MCP Voitta Gateway Server
+
+This server acts as a gateway between MCP clients and the Voitta router,
+exposing Voitta tools via the Model Context Protocol (MCP).
+"""
+
+import argparse
 import asyncio
 import json
-from typing import Dict, Any
-from fastmcp import FastMCP
-from dotenv import load_dotenv
+import logging
+import os
+import sys
+from typing import Any, Dict, List, Optional
+
+import yaml
+import mcp.server
+import mcp.server.stdio
+import mcp.types as types
+from mcp.server import (
+    InitializationOptions,
+    NotificationOptions,
+    Server,
+)
+
+# Configure logging to write to file
+import os
+
+# Ensure log directory exists
+log_dir = "/tmp/mcp-voitta-gateway"
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, "server.log")
+
+# Set up file handler
+file_handler = logging.FileHandler(log_file)
+file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
+# Configure logger
+logger = logging.getLogger("mcp-voitta-gateway")
+logger.setLevel(logging.INFO)
+logger.addHandler(file_handler)
+logger.propagate = False  # Prevent logs from being sent to stderr
+
+# Import VoittaRouter (assuming voitta is installed with pip)
 from voitta import VoittaRouter
 
 
-def log(message):
-    """Log a message to stderr and optionally to a file."""
-    with open("/tmp/mcp.log", "a") as log_file:
-        log_file.write(f"{message}\n")
-        log_file.flush()
+class VoittaMcpServer:
+    """
+    MCP Server implementation that exposes Voitta tools via the Model Context Protocol.
+    """
 
-    if os.environ.get("FASTMCP_HTTP") == "1":
-        print(message)
-    else:
-        sys.stderr.write(f"{message}\n")
-        sys.stderr.flush()
+    def __init__(self, config_path: str):
+        """
+        Initialize the Voitta MCP Server.
 
+        Args:
+            config_path: Path to the Voitta configuration file.
+        """
+        self.config_path = config_path
+        self.voitta_router = None
+        self.server = Server("voitta-gateway")
+        self.setup_handlers()
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Load the YAML configuration file
-CONFIG_PATH = os.environ.get(
-    "CONFIG_PATH", "config/voitta.yaml")
-
-log(f"Loading config from {CONFIG_PATH}")
-
-# Create the MCP server
-mcp = FastMCP(
-    "Voitta Gateway",
-    description="MCP Gateway for Voitta API",
-    dependencies=[
-        "pyyaml",
-        "voitta",
-        "pydantic",
-    ],
-)
-mcp.settings.debug = True
-mcp.settings.log_level = "DEBUG"
-
-log(f"Initializing Voitta Router with config from {CONFIG_PATH}")
-log(f"Broccoli")
-voittaRouter = VoittaRouter(CONFIG_PATH)
-log(f"Broccoli2")
-log(f"Voitta Router initialized: {voittaRouter}")
-
-
-async def initialize_voitta():
-    """Initialize Voitta and register its tools with MCP."""
-    log("Initializing Voitta router")
-
-    # Discover MCP tools
-    await voittaRouter.discover_mcp_tools()
-
-    # Get all tools
-    all_tools = voittaRouter.get_tools()
-    log(f"Loaded {len(all_tools)} tools")
-
-    # Register each tool with MCP
-    for tool in all_tools:
-        register_voitta_tool(tool)
-
-
-def register_voitta_tool(tool):
-    """Register a Voitta tool with MCP."""
-    name = tool["function"]["name"]
-    description = tool["function"].get(
-        "description", f"Execute Voitta tool: {name}")
-    parameters = tool["function"].get("parameters", {})
-
-    @mcp.tool()
-    async def voitta_tool(**kwargs):
-        """Execute a Voitta tool."""
+    async def initialize(self):
+        """Initialize the Voitta router."""
         try:
-            log(f"Calling {name} with arguments: {json.dumps(kwargs)}")
-
-            # Create the tool call structure
-            tool_call = {
-                "tool_name": name,
-                "arguments": kwargs
-            }
-
-            # Execute the tool
-            result = await execute_tool(tool_call)
-            return result
+            # Initialize the router with the configuration file path directly
+            self.voitta_router = VoittaRouter(self.config_path)
+            
+            # Discover MCP tools if any
+            await self.voitta_router.discover_mcp_tools()
+            
+            logger.info("Initialized Voitta MCP Server")
         except Exception as e:
-            log(f"Error executing Voitta tool {name}: {e}")
-            return f"Error: {str(e)}"
+            logger.error(f"Failed to initialize Voitta MCP Server: {e}")
+            raise
 
-    # Set function metadata
-    voitta_tool.__name__ = name
-    voitta_tool.__doc__ = description
+    def setup_handlers(self):
+        """Set up the MCP request handlers."""
+        
+        @self.server.list_tools()
+        async def handle_list_tools() -> List[types.Tool]:
+            """
+            Handle a request to list available tools.
+            
+            Returns:
+                List of Tool objects representing the available Voitta tools.
+            """
 
-    # Set input schema if available
-    if parameters:
-        voitta_tool.input_schema = parameters
+            logger.info("list_tools()")
 
+            if not self.voitta_router:
+                logger.error("Voitta router not initialized")
+                return []
+            
+            # Get tools from the Voitta router
+            voitta_tools = self.voitta_router.get_tools()
+            
+            
 
-async def execute_tool(tool_call):
-    """Execute a tool using the VoittaRouter."""
-    tool_name = tool_call["tool_name"]
-    arguments = tool_call["arguments"]
+            # Convert Voitta tools to MCP Tool objects
+            mcp_tools = []
+            for tool in voitta_tools:
+                # Extract tool information from the function object
+                function_info = tool.get("function", {})
+                tool_name = function_info.get("name", "").split("____")[-1]  # Get the actual function name without prefix
+                tool_description = function_info.get("description", "")
+                tool_parameters = function_info.get("parameters", {})
+                
+                logger.info(f"tool: {tool_name}")
 
-    # This is a simplified example - in a real implementation, you would use
-    # the appropriate method from VoittaRouter to execute the tool
-    try:
-        # Create a list of tools to execute
-        tools_to_execute = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool_name,
-                    "arguments": json.dumps(arguments)
+                # Log the tool parameters for debugging
+                logger.info(f"tool_parameters before: {json.dumps(tool_parameters, indent=2)}")
+                
+                # Create a proper JSON Schema for the input_schema
+                # Ensure it has the required 'type' field and other required fields
+                input_schema = {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
                 }
-            }
-        ]
+                
+                # If tool_parameters already has the correct structure, use it
+                if isinstance(tool_parameters, dict):
+                    if 'type' in tool_parameters:
+                        input_schema = tool_parameters
+                    elif 'properties' in tool_parameters:
+                        input_schema['properties'] = tool_parameters.get('properties', {})
+                        input_schema['required'] = tool_parameters.get('required', [])
+                    else:
+                        # If it's a flat dictionary, convert it to properties
+                        for key, value in tool_parameters.items():
+                            if key not in ['type', 'properties', 'required']:
+                                input_schema['properties'][key] = value
+                
+                logger.info(f"input_schema after: {json.dumps(input_schema, indent=2)}")
+                
+                # Create MCP Tool object
+                mcp_tool = types.Tool(
+                    name=tool_name,
+                    description=tool_description,
+                    inputSchema=input_schema
+                )
 
-        # Execute the tool
-        result = await voittaRouter.execute_tools(tools_to_execute)
-        return result
-    except Exception as e:
-        log(f"Error executing tool {tool_name}: {e}")
-        raise
+                logger.info(f"mcp_tool: {mcp_tool}")
+
+                mcp_tools.append(mcp_tool)
+            
+            logger.info(f"{mcp_tools}")
+
+            return mcp_tools
+
+        @self.server.call_tool()
+        async def handle_call_tool(
+            name: str, arguments: Dict[str, Any] | None
+        ) -> List[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+            """
+            Handle a request to call a tool.
+            
+            Args:
+                name: The name of the tool to call.
+                arguments: The arguments to pass to the tool.
+                
+            Returns:
+                List of content items representing the result of the tool call.
+            """
+            if not self.voitta_router:
+                logger.error("Voitta router not initialized")
+                return [types.TextContent(text="Error: Voitta router not initialized")]
+            
+            try:
+                # Find the full tool name with prefix
+                full_tool_name = None
+                for tool in self.voitta_router.get_tools():
+                    function_name = tool.get("function", {}).get("name", "")
+                    if function_name.endswith(f"____{name}"):
+                        full_tool_name = function_name
+                        break
+                
+                if not full_tool_name:
+                    logger.error(f"Tool {name} not found")
+                    return [types.TextContent(text=f"Error: Tool {name} not found")]
+                
+                # Call the tool through the Voitta router
+                # Using empty strings for token and oauth_token as they're not needed for this implementation
+                result = await self.voitta_router.call_function(full_tool_name, arguments or {}, "", "")
+                
+                # Convert the result to MCP format
+                if isinstance(result, str):
+                    # Text result
+                    return [types.TextContent(text=str(result), type="text")]
+                elif isinstance(result, dict) or isinstance(result, list):
+                    # JSON result
+                    return [types.TextContent(text=json.dumps(result, indent=2), type="text")]
+                else:
+                    # Unknown result type, convert to string
+                    return [types.TextContent(text=str(result), type="text")]
+                
+            except Exception as e:
+                logger.error(f"Error calling tool {name}: {e}")
+                return [types.TextContent(text=f"Error calling tool {name}: {str(e)}", type="text")]
+
+    async def run(self):
+        """Run the MCP server."""
+        # Initialize the Voitta router
+        await self.initialize()
+        
+        # Run the server
+        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            await self.server.run(
+                read_stream,
+                write_stream,
+                InitializationOptions(
+                    server_name="voitta-gateway",
+                    server_version="0.1.0",
+                    capabilities=self.server.get_capabilities(
+                        notification_options=NotificationOptions(),
+                        experimental_capabilities={},
+                    ),
+                ),
+            )
 
 
-@mcp.resource("voitta://tools")
-def get_voitta_tools() -> str:
-    """Get a list of available Voitta tools."""
+async def main():
+    """Main entry point for the MCP Voitta Gateway server."""
+    parser = argparse.ArgumentParser(description="MCP Voitta Gateway Server")
+    parser.add_argument(
+        "--config", 
+        default="config/voitta.yaml",
+        help="Path to the Voitta configuration file"
+    )
+    args = parser.parse_args()
+    
+    # Create and run the server
+    server = VoittaMcpServer(args.config)
     try:
-        all_tools = voittaRouter.get_tools()
-        result = ["Available Voitta Tools:"]
-
-        for tool in all_tools:
-            name = tool["function"]["name"]
-            description = tool["function"].get(
-                "description", "No description available")
-            result.append(f"- {name}: {description}")
-
-        return "\n".join(result)
+        logger.info("Starting MCP Voitta Gateway Server")
+        await server.run()
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
     except Exception as e:
-        log(f"Error getting Voitta tools: {e}")
-        return f"Error retrieving tools: {str(e)}"
+        logger.error(f"Server error: {e}")
+        sys.exit(1)
 
 
-@mcp.tool()
-def get_voitta_tool_info(tool_name: str) -> str:
-    """Get detailed information about a specific Voitta tool."""
-    try:
-        all_tools = voittaRouter.get_tools()
-
-        # Find the tool with the matching name
-        tool_info = None
-        for tool in all_tools:
-            if tool["function"]["name"] == tool_name:
-                tool_info = tool
-                break
-
-        if not tool_info:
-            return f"Tool '{tool_name}' not found."
-
-        # Extract tool information
-        function_info = tool_info["function"]
-        description = function_info.get(
-            "description", "No description available")
-        parameters = function_info.get("parameters", {})
-
-        result = [
-            f"Tool: {tool_name}",
-            f"Description: {description}",
-        ]
-
-        # Add parameter information
-        if parameters and "properties" in parameters:
-            result.append("\nParameters:")
-            properties = parameters["properties"]
-            required = parameters.get("required", [])
-
-            for param_name, param_info in properties.items():
-                param_type = param_info.get("type", "any")
-                param_desc = param_info.get("description", "No description")
-                req_status = "Required" if param_name in required else "Optional"
-                result.append(
-                    f"  - {param_name} ({param_type}, {req_status}): {param_desc}")
-
-        return "\n".join(result)
-    except Exception as e:
-        log(f"Error getting info for tool {tool_name}: {e}")
-        return f"Error retrieving tool info: {str(e)}"
-
-
-def main():
-    log("Starting Voitta MCP Gateway")
-    asyncio.run(initialize_voitta())
-
-    if os.environ.get("FASTMCP_HTTP") == "1":
-        log("Running in HTTP mode")
-        port = int(os.environ.get("PORT", 10000))
-        mcp.settings.port = port
-        asyncio.run(mcp.run(transport="sse"))
-    else:
-        # Run in normal mode (stdio)
-        log("Running in stdio mode")
-        asyncio.run(mcp.run())
-
-
-log(f"Imported as {__name__}")
 if __name__ == "__main__":
-    main()
-else:
-    log("Running with inspector")
-    # Use asyncio.run() to properly await the coroutines
-    asyncio.run(initialize_voitta())
-    asyncio.run(mcp.run())
+    asyncio.run(main())
